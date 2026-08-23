@@ -77,8 +77,8 @@ def main():
     print(f"🤖 Bot token: {BOT_TOKEN[:10]}...")
     print("📱 Waiting for commands...")
     
-    # Start polling with retries
-    app.run_polling(drop_pending_updates=True, retry_after=5, max_retries=3)
+    # Start polling
+    app.run_polling(drop_pending_updates=True)
 
 if __name__ == "__main__":
     main()
