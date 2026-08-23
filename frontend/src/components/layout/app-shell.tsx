@@ -16,26 +16,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, fetchUser, user } = useAuthStore();
   const { setTheme, theme } = useThemeStore();
 
-
-  // Предотвращаем hydration mismatch: React 19 делает его fatal error.
-  // Сервер рендерит исходное состояние (нет localStorage), клиент — реальное.
-  // Держим spinner пока не выполнен первый useEffect (только на клиенте).
   const [mounted, setMounted] = useState(false);
+  const [rehydrated, setRehydrated] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    fetchUser();
-  }, [fetchUser]);
+  }, []);
 
   useEffect(() => {
     setTheme(theme);
   }, [setTheme, theme]);
 
+  // Проверяем реhydrated из Zustand
   useEffect(() => {
-    if (mounted && !isAuthenticated) {
+    if (mounted && typeof window !== "undefined") {
+      const authStorage = localStorage.getItem("auth-storage");
+      if (authStorage) {
+        try {
+          const parsed = JSON.parse(authStorage);
+          if (parsed?.state?.accessToken) {
+            setRehydrated(true);
+            fetchUser();
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }, [mounted, fetchUser]);
+
+  useEffect(() => {
+    if (mounted && !isAuthenticated && rehydrated) {
       router.push("/login");
     }
-  }, [mounted, isAuthenticated, router]);
+  }, [mounted, isAuthenticated, rehydrated, router]);
 
   // Мерчанта держим в его кабинете: если он зашёл на страницу персонала,
   // перенаправляем на /merchant.
@@ -51,9 +65,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, [mounted, isAuthenticated, user?.role, pathname, router]);
 
-
-  // До mount: одинаковый вывод для сервера и клиента (нет mismatch)
-  if (!mounted || !isAuthenticated) {
+  // До rehydration: показываем спиннер
+  if (!rehydrated) {
     return (
       <div className="flex h-screen items-center justify-center bg-background">
         <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />

@@ -75,8 +75,16 @@ export const useAuthStore = create<AuthState>()(
         isAuthenticated: state.isAuthenticated,
       }),
       onRehydrateStorage: () => (state) => {
-        if (state?.accessToken) {
-          api.setToken(state.accessToken);
+        if (state) {
+          // Восстанавливаем токен
+          if (state.accessToken) {
+            api.setToken(state.accessToken);
+            state.isAuthenticated = true;
+          }
+          // Проверяем пользователя при загрузке
+          if (state.accessToken && !state.user) {
+            state.fetchUser();
+          }
         }
       },
     }
