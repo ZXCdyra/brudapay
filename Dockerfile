@@ -10,7 +10,7 @@ RUN npm run build
 FROM node:20-alpine AS frontend-stage
 WORKDIR /app
 COPY frontend/package.json ./
-RUN npm ci --only=production
+RUN npm ci --omit=dev
 COPY --from=frontend-builder /app/.next/standalone ./
 COPY --from=frontend-builder /app/.next/static ./.next/static
 COPY --from=frontend-builder /app/public ./public
@@ -46,4 +46,4 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Start backend in background, then frontend
-CMD sh -c './paymentsgate & next start -p 3000'
+CMD ["sh", "-c", "./paymentsgate & next start -p 3000"]
