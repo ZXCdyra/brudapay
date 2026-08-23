@@ -1,0 +1,25 @@
+FROM golang:1.23-alpine AS builder
+
+WORKDIR /app
+
+RUN apk add --no-cache git ca-certificates
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /paymentsgate ./cmd/server
+
+FROM alpine:3.19
+
+RUN apk add --no-cache ca-certificates tzdata postgresql-client
+
+WORKDIR /app
+
+COPY --from=builder /paymentsgate .
+COPY migrations ./migrations
+
+EXPOSE 8080
+
+# Run migrations before starting the server
+CMD ./migrate.sh && ./paymentsgate

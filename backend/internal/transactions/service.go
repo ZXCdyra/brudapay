@@ -1,0 +1,584 @@
+package transactions
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
+	"github.com/brudapay/brudapay/internal/routing"
+	"github.com/brudapay/brudapay/internal/webhooks"
+	"github.com/brudapay/brudapay/internal/websocket"
+	"github.com/brudapay/brudapay/pkg/database"
+	"github.com/brudapay/brudapay/pkg/integrations"
+	"github.com/brudapay/brudapay/pkg/models"
+)
+
+type Service struct {
+	db              *database.DB
+	router          *routing.Engine
+	hub             *websocket.Hub
+	webhookNotifier *webhooks.Notifier
+}
+
+func NewService(db *database.DB, router *routing.Engine, hub *websocket.Hub) *Service {
+	return &Service{
+		db:              db,
+		router:          router,
+		hub:             hub,
+		webhookNotifier: webhooks.NewNotifier(db),
+	}
+}
+
+type CreateDepositRequest struct {
+	Amount              float64 `json:"amount" binding:"required,gt=0"`
+	Currency            string  `json:"currency" binding:"required,len=3"`
+	Country             string  `json:"country" binding:"required,len=2"`
+	ExternalID          *string `json:"external_id"`
+	PlayerID            *string `json:"player_id"`
+	MerchantCustomerID  *string `json:"merchant_customer_id"` // For Payer Affinity
+	PaymentMethod       *string `json:"payment_method"`       // auto, card, sbp, etc.
+}
+
+type DepositResponse struct {
+	TransactionID uuid.UUID         `json:"transaction_id"`
+	Status        models.TransactionStatus `json:"status"`
+	Requisite     *RequisiteInfo    `json:"requisite,omitempty"`
+	Provider      *ProviderInfo     `json:"provider,omitempty"`
+}
+
+type RequisiteInfo struct {
+	BankName      string `json:"bank_name"`
+	HolderName    string `json:"holder_name"`
+	AccountNumber string `json:"account_number"`
+}
+
+type ProviderInfo struct {
+	ID   uuid.UUID `json:"id"`
+	Name string    `json:"name"`
+}
+
+type ListFilter struct {
+	Page      int
+	PerPage   int
+	Status    string
+	Country   string
+	CasinoID  string
+	ProviderID string
+	MinAmount *float64
+	MaxAmount *float64
+	DateFrom  *time.Time
+	DateTo    *time.Time
+	IsSandbox *bool
+}
+
+func (s *Service) CreateDeposit(ctx context.Context, casinoID uuid.UUID, req CreateDepositRequest, isSandbox bool) (*DepositResponse, error) {
+	start := time.Now()
+	txID := uuid.New()
+
+	_, err := s.db.Pool.Exec(ctx, `
+		INSERT INTO transactions (id, external_id, casino_id, amount, currency, country, status, player_id, is_sandbox, merchant_customer_id, payment_method)
+		VALUES ($1, $2, $3, $4, $5, $6, 'NEW', $7, $8, $9, $10)
+	`, txID, req.ExternalID, casinoID, req.Amount, req.Currency, req.Country, req.PlayerID, isSandbox, req.MerchantCustomerID, req.PaymentMethod)
+	if err != nil {
+		return nil, fmt.Errorf("create transaction: %w", err)
+	}
+
+	s.hub.Broadcast(websocket.EventNewTransaction, map[string]interface{}{
+		"id":       txID,
+		"amount":   req.Amount,
+		"currency": req.Currency,
+		"country":  req.Country,
+		"status":   models.TxStatusNew,
+	})
+
+	routeResult, err := s.router.Route(ctx, routing.RouteRequest{
+		Amount:             req.Amount,
+		Currency:           req.Currency,
+		Country:            req.Country,
+		IsSandbox:          isSandbox,
+		MerchantCustomerID: req.MerchantCustomerID,
+		PaymentMethod:      req.PaymentMethod,
+		CasinoID:           casinoID,
+	})
+
+	resp := &DepositResponse{
+		TransactionID: txID,
+		Status:        models.TxStatusNew,
+	}
+
+	if err != nil {
+		// Log routing error for debugging
+		routingErrorDetails := map[string]interface{}{
+			"error":      err.Error(),
+			"amount":     req.Amount,
+			"currency":   req.Currency,
+			"country":    req.Country,
+			"is_sandbox": isSandbox,
+		}
+		routingErrJSON, _ := json.Marshal(routingErrorDetails)
+		_, _ = s.db.Pool.Exec(ctx, `
+			INSERT INTO audit_logs (action, entity_type, entity_id, details)
+			VALUES ('ROUTING_ERROR', 'transaction', $1, $2)
+		`, txID, string(routingErrJSON))
+
+		_, _ = s.db.Pool.Exec(ctx, `UPDATE transactions SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, txID)
+		resp.Status = models.TxStatusCancelled
+		s.hub.Broadcast(websocket.EventError, map[string]interface{}{
+			"transaction_id": txID,
+			"error":          err.Error(),
+		})
+		return resp, nil
+	}
+
+	// Log successful routing
+	routingSuccessDetails := map[string]interface{}{
+		"provider_id":  routeResult.ProviderID.String(),
+		"requisite_id": routeResult.RequisiteID.String(),
+		"rule_id":      routeResult.RuleID.String(),
+	}
+	routingSuccessJSON, _ := json.Marshal(routingSuccessDetails)
+	_, _ = s.db.Pool.Exec(ctx, `
+		INSERT INTO audit_logs (action, entity_type, entity_id, details)
+		VALUES ('ROUTING_SUCCESS', 'transaction', $1, $2)
+	`, txID, string(routingSuccessJSON))
+
+	now := time.Now()
+	processingMs := time.Since(start).Milliseconds()
+	_, err = s.db.Pool.Exec(ctx, `
+		UPDATE transactions
+		SET provider_id = $2, status = 'WAITING_PAYMENT',
+		    assigned_at = $3, processing_ms = $4, updated_at = NOW()
+		WHERE id = $1
+	`, txID, routeResult.ProviderID, now, processingMs)
+	if err != nil {
+		return nil, err
+	}
+
+	var provider models.Provider
+	err = s.db.Pool.QueryRow(ctx, `SELECT id, name, base_url, api_key, secret_key, merchant_id, webhook_url FROM providers WHERE id = $1`, routeResult.ProviderID).
+		Scan(&provider.ID, &provider.Name, &provider.BaseURL, &provider.APIKey, &provider.SecretKey, &provider.MerchantID, &provider.WebhookURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch provider: %w", err)
+	}
+
+	fmt.Printf("[DEBUG] Provider loaded: id=%s, name=%s, has_base_url=%v\n",
+		provider.ID, provider.Name, provider.BaseURL != nil)
+
+	resp.Status = models.TxStatusWaitingPayment
+	resp.Provider = &ProviderInfo{ID: provider.ID, Name: provider.Name}
+
+	// Определяем тип провайдера по имени для выбора клиента
+	providerName := provider.Name
+
+	// --- 911pay integration ---
+	if is911Pay(providerName) && provider.MerchantID != nil && *provider.MerchantID != "" {
+		fmt.Printf("[DEBUG] Calling 911pay API for transaction %s\n", txID)
+
+		baseURL := ""
+		if provider.BaseURL != nil {
+			baseURL = *provider.BaseURL
+		}
+		pay911Client := integrations.NewPay911ClientWithBase(baseURL, *provider.MerchantID, provider.SecretKey)
+
+		// Формируем callback URL на наш webhook эндпоинт
+		// base_url берётся из конфигурации, но мы не имеем его здесь напрямую —
+		// используем provider.WebhookURL если задан, иначе оставляем пустым
+		// (911pay в этом случае не будет слать колбэки, и мы будем полагаться на polling или
+		// ручное подтверждение)
+		callbackURL := ""
+		if provider.WebhookURL != nil && *provider.WebhookURL != "" {
+			callbackURL = *provider.WebhookURL
+		}
+
+		pay911Req := integrations.Pay911OrderCreateRequest{
+			ExternalID:  txID.String(), // наш transaction ID как external_id
+			Amount:      int64(req.Amount * 100), // в минорных единицах (копейки)
+			Currency:    normalizeCurrency(req.Currency),
+			CallbackURL: callbackURL,
+		}
+
+		if req.PaymentMethod != nil && *req.PaymentMethod != "" && *req.PaymentMethod != "auto" {
+			pay911Req.PaymentGateway = *req.PaymentMethod
+		}
+
+		fmt.Printf("[DEBUG] 911pay request: amount=%d, currency=%s, external_id=%s\n",
+			pay911Req.Amount, pay911Req.Currency, pay911Req.ExternalID)
+
+		pay911Order, err := pay911Client.CreateOrder(ctx, pay911Req)
+		if err != nil {
+			fmt.Printf("[ERROR] 911pay API call failed: %v (continuing without provider requisites)\n", err)
+			errorDetails := map[string]interface{}{
+				"error":    err.Error(),
+				"provider": "911pay",
+			}
+			errorJSON, _ := json.Marshal(errorDetails)
+			_, _ = s.db.Pool.Exec(ctx, `
+				INSERT INTO audit_logs (action, entity_type, entity_id, details)
+				VALUES ('PROVIDER_API_ERROR', 'transaction', $1, $2)
+			`, txID, string(errorJSON))
+		} else {
+			fmt.Printf("[SUCCESS] 911pay order created: order_id=%s status=%s\n",
+				pay911Order.OrderID, pay911Order.Status)
+
+			// Сохраняем UUID ордера 911pay как provider_transaction_id
+			if pay911Order.OrderID != "" {
+				if result, saveErr := s.db.Pool.Exec(ctx, `
+					UPDATE transactions
+					SET provider_transaction_id = $2, updated_at = NOW()
+					WHERE id = $1
+				`, txID, pay911Order.OrderID); saveErr != nil {
+					fmt.Printf("[ERROR] Failed to save provider_transaction_id: %v\n", saveErr)
+				} else {
+					fmt.Printf("[DEBUG] Saved provider_transaction_id='%s' (rows affected: %d)\n",
+						pay911Order.OrderID, result.RowsAffected())
+				}
+			}
+
+			// Извлекаем реквизиты из ответа 911pay
+			// Для Merchant API реквизиты доступны через payment_link (hosted page).
+			// Если 911pay вернул payment_detail (H2H или ранний Merchant API) — используем их.
+			if pay911Order.PaymentDetail != nil && pay911Order.PaymentDetail.Detail != "" {
+				pd := pay911Order.PaymentDetail
+				resp.Requisite = &RequisiteInfo{
+					BankName:      pay911Order.PaymentGatewayName,
+					HolderName:    pd.Initials,
+					AccountNumber: pd.Detail,
+				}
+				fmt.Printf("[DEBUG] 911pay requisites: bank=%s holder=%s detail=%s\n",
+					pay911Order.PaymentGatewayName, pd.Initials, pd.Detail)
+			}
+
+			// Лог успешного вызова
+			successDetails := map[string]interface{}{
+				"provider":                "911pay",
+				"provider_transaction_id": pay911Order.OrderID,
+				"status":                  pay911Order.Status,
+				"payment_link":            pay911Order.PaymentLink,
+			}
+			successJSON, _ := json.Marshal(successDetails)
+			_, _ = s.db.Pool.Exec(ctx, `
+				INSERT INTO audit_logs (action, entity_type, entity_id, details)
+				VALUES ('PROVIDER_API_CALLED', 'transaction', $1, $2)
+			`, txID, string(successJSON))
+		}
+	} else if provider.BaseURL != nil && *provider.BaseURL != "" {
+		// --- MajorPay / generic provider integration ---
+		fmt.Printf("[DEBUG] Calling provider API: %s for transaction %s\n", *provider.BaseURL, txID)
+
+		providerClient := integrations.NewMajorPayClient(*provider.BaseURL, provider.APIKey, provider.SecretKey)
+
+		providerReq := integrations.MajorPayDepositRequest{
+			Amount:             int(req.Amount * 100), // Convert to kopecks
+			MerchantCustomerID: func() string {
+				if req.MerchantCustomerID != nil {
+					return *req.MerchantCustomerID
+				}
+				return fmt.Sprintf("customer_%s", txID.String()[:8])
+			}(),
+			PaymentMethod: func() string {
+				if req.PaymentMethod != nil {
+					return *req.PaymentMethod
+				}
+				return "auto"
+			}(),
+		}
+
+		fmt.Printf("[DEBUG] Provider request: amount=%d, merchant_customer_id=%s\n", providerReq.Amount, providerReq.MerchantCustomerID)
+
+		providerResp, err := providerClient.CreateDeposit(ctx, providerReq)
+		if err != nil {
+			fmt.Printf("[ERROR] Provider API call failed: %v (will continue without provider requisites)\n", err)
+			// Log error but continue - transaction already created
+			errorDetails := map[string]interface{}{
+				"error":        err.Error(),
+				"provider_url": *provider.BaseURL,
+			}
+			errorJSON, _ := json.Marshal(errorDetails)
+			_, _ = s.db.Pool.Exec(ctx, `
+				INSERT INTO audit_logs (action, entity_type, entity_id, details)
+				VALUES ('PROVIDER_API_ERROR', 'transaction', $1, $2)
+			`, txID, string(errorJSON))
+		} else {
+			fmt.Printf("[SUCCESS] Provider API response: transaction_id=%s\n", providerResp.TransactionID)
+
+			// Log full response for debugging
+			respJSON, _ := json.Marshal(providerResp)
+			fmt.Printf("[DEBUG] Full provider response: %s\n", string(respJSON))
+
+			fmt.Printf("[DEBUG] Provider response requisite: bank=%s, holder=%s, account=%s\n",
+				providerResp.Requisite.BankName, providerResp.Requisite.HolderName, providerResp.Requisite.AccountNumber)
+
+			// Save provider transaction ID for webhook matching
+			result, err := s.db.Pool.Exec(ctx, `
+				UPDATE transactions
+				SET provider_transaction_id = $2, updated_at = NOW()
+				WHERE id = $1
+			`, txID, providerResp.TransactionID)
+
+			if err != nil {
+				fmt.Printf("[ERROR] Failed to save provider_transaction_id: %v\n", err)
+			} else {
+				rowsAffected := result.RowsAffected()
+				fmt.Printf("[DEBUG] Saved provider_transaction_id='%s' for transaction %s (rows affected: %d)\n",
+					providerResp.TransactionID, txID, rowsAffected)
+			}
+
+			// Use requisites from provider response
+			if providerResp.Requisite.BankName != "" {
+				resp.Requisite = &RequisiteInfo{
+					BankName:      providerResp.Requisite.BankName,
+					HolderName:    providerResp.Requisite.HolderName,
+					AccountNumber: providerResp.Requisite.AccountNumber,
+				}
+				fmt.Printf("[DEBUG] Using requisites from provider: bank=%s\n", providerResp.Requisite.BankName)
+			} else if providerResp.PaymentMethod.Bank != "" {
+				// Use payment_method as fallback (MajorPay format)
+				resp.Requisite = &RequisiteInfo{
+					BankName:      providerResp.PaymentMethod.Bank,
+					HolderName:    providerResp.PaymentMethod.Name,
+					AccountNumber: providerResp.PaymentMethod.Phone, // Phone instead of account number
+				}
+				fmt.Printf("[DEBUG] Using requisites from payment_method: bank=%s, name=%s, phone=%s\n",
+					providerResp.PaymentMethod.Bank, providerResp.PaymentMethod.Name, providerResp.PaymentMethod.Phone)
+			}
+
+			// Log successful provider call
+			successDetails := map[string]interface{}{
+				"provider_transaction_id": providerResp.TransactionID,
+				"provider_url":            *provider.BaseURL,
+				"requisite_bank":          providerResp.Requisite.BankName,
+			}
+			successJSON, _ := json.Marshal(successDetails)
+			_, _ = s.db.Pool.Exec(ctx, `
+				INSERT INTO audit_logs (action, entity_type, entity_id, details)
+				VALUES ('PROVIDER_API_CALLED', 'transaction', $1, $2)
+			`, txID, string(successJSON))
+		}
+	}
+
+	// If no requisites from provider, use fallback from DB
+	if resp.Requisite == nil {
+		fmt.Printf("[DEBUG] No requisites from provider, using fallback from DB\n")
+		var requisite models.Requisite
+		err = s.db.Pool.QueryRow(ctx, `
+			SELECT bank_name, holder_name, account_number
+			FROM requisites
+			WHERE provider_id = $1
+			  AND status = 'ACTIVE'
+			  AND is_online = true
+			  AND currency = $2
+			  AND country = $3
+			ORDER BY created_at DESC
+			LIMIT 1
+		`, routeResult.ProviderID, req.Currency, req.Country).
+			Scan(&requisite.BankName, &requisite.HolderName, &requisite.AccountNumber)
+
+		if err == nil {
+			resp.Requisite = &RequisiteInfo{
+				BankName:      requisite.BankName,
+				HolderName:    requisite.HolderName,
+				AccountNumber: requisite.AccountNumber,
+			}
+			fmt.Printf("[DEBUG] Using fallback requisites from DB: bank=%s\n", requisite.BankName)
+		} else {
+			fmt.Printf("[ERROR] No fallback requisites found: %v\n", err)
+		}
+	}
+
+	s.hub.Broadcast(websocket.EventStatusChange, map[string]interface{}{
+		"transaction_id": txID,
+		"status":         models.TxStatusWaitingPayment,
+		"provider_id":    routeResult.ProviderID,
+	})
+
+	_, _ = s.db.Pool.Exec(ctx, `
+		INSERT INTO audit_logs (action, entity_type, entity_id, details)
+		VALUES ('TRANSACTION_ROUTED', 'transaction', $1, $2)
+	`, txID, fmt.Sprintf(`{"provider_id":"%s","requisite_id":"%s"}`, routeResult.ProviderID, routeResult.RequisiteID))
+
+	return resp, nil
+}
+
+func (s *Service) GetByID(ctx context.Context, id uuid.UUID) (*models.Transaction, error) {
+	return s.scanTransaction(ctx, `
+		SELECT t.id, t.external_id, t.casino_id, t.provider_id, t.requisite_id,
+		       t.amount, t.currency, t.country, t.status, t.player_id, t.is_sandbox,
+		       t.processing_ms, t.created_at, t.updated_at, t.assigned_at, t.paid_at,
+		       COALESCE(c.name, ''), COALESCE(p.name, ''), COALESCE(r.bank_name, ''),
+		       t.provider_transaction_id
+		FROM transactions t
+		LEFT JOIN casinos c ON c.id = t.casino_id
+		LEFT JOIN providers p ON p.id = t.provider_id
+		LEFT JOIN requisites r ON r.id = t.requisite_id
+		WHERE t.id = $1
+	`, id)
+}
+
+func (s *Service) List(ctx context.Context, f ListFilter) ([]models.Transaction, int64, error) {
+	if f.Page < 1 {
+		f.Page = 1
+	}
+	if f.PerPage < 1 || f.PerPage > 100 {
+		f.PerPage = 20
+	}
+
+	where := "WHERE 1=1"
+	args := []interface{}{}
+	argIdx := 1
+
+	if f.Status != "" {
+		where += fmt.Sprintf(" AND t.status = $%d", argIdx)
+		args = append(args, f.Status)
+		argIdx++
+	}
+	if f.Country != "" {
+		where += fmt.Sprintf(" AND t.country = $%d", argIdx)
+		args = append(args, f.Country)
+		argIdx++
+	}
+	if f.CasinoID != "" {
+		where += fmt.Sprintf(" AND t.casino_id = $%d", argIdx)
+		args = append(args, f.CasinoID)
+		argIdx++
+	}
+	if f.ProviderID != "" {
+		where += fmt.Sprintf(" AND t.provider_id = $%d", argIdx)
+		args = append(args, f.ProviderID)
+		argIdx++
+	}
+	if f.IsSandbox != nil {
+		where += fmt.Sprintf(" AND t.is_sandbox = $%d", argIdx)
+		args = append(args, *f.IsSandbox)
+		argIdx++
+	}
+
+	var total int64
+	countQuery := "SELECT COUNT(*) FROM transactions t " + where
+	if err := s.db.Pool.QueryRow(ctx, countQuery, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	offset := (f.Page - 1) * f.PerPage
+	query := fmt.Sprintf(`
+		SELECT t.id, t.external_id, t.casino_id, t.provider_id, t.requisite_id,
+		       t.amount, t.currency, t.country, t.status, t.player_id, t.is_sandbox,
+		       t.processing_ms, t.created_at, t.updated_at, t.assigned_at, t.paid_at,
+		       COALESCE(c.name, ''), COALESCE(p.name, ''), COALESCE(r.bank_name, ''),
+		       t.provider_transaction_id
+		FROM transactions t
+		LEFT JOIN casinos c ON c.id = t.casino_id
+		LEFT JOIN providers p ON p.id = t.provider_id
+		LEFT JOIN requisites r ON r.id = t.requisite_id
+		%s ORDER BY t.created_at DESC LIMIT $%d OFFSET $%d
+	`, where, argIdx, argIdx+1)
+	args = append(args, f.PerPage, offset)
+
+	rows, err := s.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	txs := make([]models.Transaction, 0)
+	for rows.Next() {
+		tx, err := scanTransactionRow(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		txs = append(txs, *tx)
+	}
+	return txs, total, rows.Err()
+}
+
+func (s *Service) UpdateStatus(ctx context.Context, id uuid.UUID, status models.TransactionStatus) error {
+	query := `UPDATE transactions SET status = $1, updated_at = NOW()`
+	args := []interface{}{status, id}
+
+	if status == models.TxStatusPaid {
+		query += `, paid_at = NOW()`
+	}
+	query += ` WHERE id = $2`
+
+	tag, err := s.db.Pool.Exec(ctx, query, args...)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+
+	// Record successful payment for Payer Affinity
+	if status == models.TxStatusPaid {
+		var merchantCustomerID *string
+		var casinoID uuid.UUID
+		var requisiteID *uuid.UUID
+		_ = s.db.Pool.QueryRow(ctx, `
+			SELECT merchant_customer_id, casino_id, requisite_id
+			FROM transactions WHERE id = $1
+		`, id).Scan(&merchantCustomerID, &casinoID, &requisiteID)
+
+		if merchantCustomerID != nil && *merchantCustomerID != "" && requisiteID != nil {
+			_ = s.router.RecordSuccessfulPayment(ctx, *merchantCustomerID, casinoID, *requisiteID)
+		}
+	}
+
+	s.hub.Broadcast(websocket.EventStatusChange, map[string]interface{}{
+		"transaction_id": id,
+		"status":         status,
+	})
+
+	// Send webhook notification to merchant on final status
+	go func() {
+		if err := s.webhookNotifier.NotifyMerchant(context.Background(), id, status); err != nil {
+			fmt.Printf("[ERROR] Failed to send webhook for transaction %s: %v\n", id, err)
+		}
+	}()
+
+	return nil
+}
+
+func (s *Service) scanTransaction(ctx context.Context, query string, id uuid.UUID) (*models.Transaction, error) {
+	row := s.db.Pool.QueryRow(ctx, query, id)
+	return scanTransactionRow(row)
+}
+
+// is911Pay возвращает true, если имя провайдера соответствует 911pay.
+func is911Pay(name string) bool {
+	switch name {
+	case "911pay", "911Pay", "911PAY", "Pay911", "pay911":
+		return true
+	}
+	return false
+}
+
+// normalizeCurrency приводит код валюты к нижнему регистру для 911pay API
+// (API принимает "rub", "usd" и т.д.)
+func normalizeCurrency(currency string) string {
+	result := make([]byte, len(currency))
+	for i, c := range currency {
+		if c >= 'A' && c <= 'Z' {
+			result[i] = byte(c + 32)
+		} else {
+			result[i] = byte(c)
+		}
+	}
+	return string(result)
+}
+
+func scanTransactionRow(row pgx.Row) (*models.Transaction, error) {
+	var tx models.Transaction
+	err := row.Scan(
+		&tx.ID, &tx.ExternalID, &tx.CasinoID, &tx.ProviderID, &tx.RequisiteID,
+		&tx.Amount, &tx.Currency, &tx.Country, &tx.Status, &tx.PlayerID, &tx.IsSandbox,
+		&tx.ProcessingMs, &tx.CreatedAt, &tx.UpdatedAt, &tx.AssignedAt, &tx.PaidAt,
+		&tx.CasinoName, &tx.ProviderName, &tx.RequisiteBank,
+		&tx.ProviderTransactionID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	return &tx, nil
+}
