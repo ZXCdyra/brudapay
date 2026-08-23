@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /paymentsgate ./cmd/se
 # ============================================
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates tzdata curl
+RUN apk add --no-cache ca-certificates tzdata curl python3 py3-pip
 
 WORKDIR /app
 
@@ -37,8 +37,25 @@ COPY backend/migrations ./migrations
 COPY telegram_bot.py .
 
 # Устанавливаем Python зависимости
-RUN apk add --no-cache python3 py3-pip
 RUN pip3 install --break-system-packages --no-cache-dir python-telegram-bot
+
+# Создаём entrypoint script прямо здесь
+RUN echo '#!/bin/bash' > /app/start.sh && \
+    echo 'set -e' >> /app/start.sh && \
+    echo '' >> /app/start.sh && \
+    echo 'echo "🚀 Запуск Backend API..."' >> /app/start.sh && \
+    echo '/app/paymentsgate &' >> /app/start.sh && \
+    echo 'BACKEND_PID=$!' >> /app/start.sh && \
+    echo 'echo "⏳ Ожидание запуска бэкенда..."' >> /app/start.sh && \
+    echo 'sleep 3' >> /app/start.sh && \
+    echo 'echo "🤖 Запуск Telegram Bot..."' >> /app/start.sh && \
+    echo 'python3 telegram_bot.py &' >> /app/start.sh && \
+    echo 'BOT_PID=$!' >> /app/start.sh && \
+    echo 'echo "✅ Все сервисы запущены!"' >> /app/start.sh && \
+    echo 'trap "kill $BACKEND_PID $BOT_PID 2>/dev/null; exit" SIGTERM SIGINT' >> /app/start.sh && \
+    echo 'wait' >> /app/start.sh
+
+RUN chmod +x /app/start.sh
 
 # Порт для API
 EXPOSE 8080
@@ -51,8 +68,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 ENV PORT=8080
 ENV SERVER_PORT=8080
 
-# Запускаем бэкенд и бота через entrypoint script
-COPY entrypoint.sh .
-RUN chmod +x entrypoint.sh
-
-CMD ["./entrypoint.sh"]
+CMD ["/app/start.sh"]
