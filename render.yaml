@@ -8,7 +8,6 @@ services:
     region: frankfurt
     plan: standard
     branch: main
-    dockerContext: backend
     dockerfilePath: Dockerfile
     healthCheckPath: /health
     envVars:
