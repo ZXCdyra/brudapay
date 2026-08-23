@@ -112,15 +112,6 @@ func main() {
 	trafficSvc := traffic.NewService(db)
 	merchantSvc := merchant.NewService(db)
 
-	// ===== Telegram Bot =====
-	bot := tgbotpkg.NewBot(cfg.Telegram.BotToken, cfg.Server.BaseURL, tgNotifier)
-	go func() {
-		if err := bot.Start(); err != nil {
-			log.Printf("telegram bot error: %v", err)
-		}
-	}()
-	log.Println("Telegram bot initialized")
-
 	authHandler := auth.NewHandler(authSvc)
 	merchantHandler := merchant.NewHandler(merchantSvc)
 
@@ -187,7 +178,7 @@ func main() {
 	}
 
 	// Serve static files from _next directory
-	r.StaticFS("/_next", http.Fs(os.DirFS(filepath.Join(frontendDir, ".next"))))
+	r.StaticFS("/_next", http.FS(os.DirFS(filepath.Join(frontendDir, ".next"))))
 
 	// Serve server.js for all non-API routes (SPA)
 	r.NoRoute(func(c *gin.Context) {

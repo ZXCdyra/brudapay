@@ -58,7 +58,7 @@ func Load() *Config {
 			BaseURL:     getEnv("BASE_URL", "http://localhost:8080"),
 		},
 		Database: DatabaseConfig{
-			URL: getEnv("DATABASE_URL", "postgres://paymentsgate:paymentsgate@localhost:5432/paymentsgate?sslmode=disable"),
+			URL: getEnv("DATABASE_URL", "postgres://paymentsgate:paymentsgate@localhost:5433/paymentsgate?sslmode=disable"),
 		},
 		Redis: RedisConfig{
 			URL: getEnv("REDIS_URL", "redis://localhost:6379/0"),
