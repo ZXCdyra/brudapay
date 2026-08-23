@@ -12,7 +12,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /paymentsgate ./cmd/se
 
 FROM alpine:3.19
 
-RUN apk add --no-cache ca-certificates tzdata postgresql-client
+RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
@@ -21,5 +21,5 @@ COPY migrations ./migrations
 
 EXPOSE 8080
 
-# Run migrations before starting the server
-CMD ./migrate.sh && ./paymentsgate
+# Server handles migrations automatically on startup
+CMD ["./paymentsgate"]
