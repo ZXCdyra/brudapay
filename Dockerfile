@@ -15,22 +15,52 @@ RUN go mod download
 COPY backend/ .
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /paymentsgate ./cmd/server
 
-FROM nginx:alpine
-COPY --from=frontend-builder /app/.next /app/.next
-COPY --from=frontend-builder /app/public /app/public
-COPY --from=frontend-builder /app/package.json /app/package.json
+FROM node:20-alpine AS runtime
+RUN apk add --no-cache ca-certificates tzdata
 
-# Copy backend binary
-COPY --from=backend-builder /paymentsgate /app/paymentsgate
-COPY backend/migrations /app/migrations
+WORKDIR /app
 
-# Copy nginx config
-COPY nginx/nginx.conf /etc/nginx/nginx.conf
+# Copy frontend build
+COPY --from=frontend-builder /app/.next .next
+COPY --from=frontend-builder /app/public ./public
+COPY --from=frontend-builder /app/node_modules ./node_modules
+COPY --from=frontend-builder /app/package.json ./
 
-# Create startup script
-RUN echo '#!/bin/sh\n/app/paymentsgate &\nnginx -g "daemon off;"' > /app/start.sh && \
-    chmod +x /app/start.sh
+# Copy backend binary and migrations
+COPY --from=backend-builder /paymentsgate .
+COPY backend/migrations ./migrations
 
-EXPOSE 80
+# Install pm2 to run both processes
+RUN npm install -g pm2
 
-CMD ["/app/start.sh"]
+# Create PM2 ecosystem config
+RUN cat > ecosystem.config.js << 'EOF'
+module.exports = {
+  apps: [{
+    name: "backend",
+    script: "/app/paymentsgate",
+    instances: 1,
+    exec_mode: "fork",
+    max_memory_restart: "500M",
+  }, {
+    name: "frontend",
+    script: "/app/node_modules/.bin/next",
+    args: "start",
+    instances: 1,
+    exec_mode: "fork",
+    max_memory_restart: "500M",
+    env: {
+      NODE_ENV: "production",
+      PORT: 3000
+    }
+  }]
+};
+EOF
+
+EXPOSE 3000
+
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME="0.0.0.0"
+
+CMD ["pm2-runtime", "ecosystem.config.js"]
