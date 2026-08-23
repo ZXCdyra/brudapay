@@ -1,7 +1,11 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
+  // Не standalone - Render не корректно обрабатывает standalone server
+  output: undefined,
+  images: {
+    unoptimized: true,
+  },
 };
 
 export default nextConfig;
