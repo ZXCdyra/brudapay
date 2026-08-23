@@ -171,23 +171,23 @@ func main() {
 	webhookGroup := v1.Group("/webhook")
 	webhookHandler.RegisterRoutes(webhookGroup)
 
-	// ===== Serve Next.js standalone frontend =====
+	// ===== Serve static HTML frontend =====
 	frontendDir := os.Getenv("FRONTEND_DIR")
 	if frontendDir == "" {
-		frontendDir = "./frontend/.next/standalone"
+		frontendDir = "./html"
 	}
 
 	// Check if frontend exists
-	if _, err := os.Stat(filepath.Join(frontendDir, "server.js")); os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(frontendDir, "index.html")); os.IsNotExist(err) {
 		log.Printf("⚠️ Frontend not found at %s (running API only)", frontendDir)
 	} else {
 		log.Printf("✅ Frontend found at %s", frontendDir)
 	}
 
-	// Serve static files from _next directory
-	r.StaticFS("/_next", http.FS(os.DirFS(filepath.Join(frontendDir, ".next"))))
+	// Serve static files from frontend directory
+	r.StaticFS("/assets", http.FS(os.DirFS(filepath.Join(frontendDir, "assets"))))
 
-	// Serve server.js for all non-API routes (SPA)
+	// Serve index.html for all non-API routes (SPA)
 	r.NoRoute(func(c *gin.Context) {
 		if strings.HasPrefix(c.Request.URL.Path, "/api/") ||
 			strings.HasPrefix(c.Request.URL.Path, "/ws") ||
@@ -195,7 +195,7 @@ func main() {
 			c.JSON(404, gin.H{"error": "not found"})
 			return
 		}
-		c.File(filepath.Join(frontendDir, "server.js"))
+		c.File(filepath.Join(frontendDir, "index.html"))
 	})
 
 	srv := &http.Server{
