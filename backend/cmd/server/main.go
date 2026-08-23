@@ -3,8 +3,6 @@ package main
 import (
 	"context"
 	"embed"
-	"fmt"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -176,27 +174,21 @@ func main() {
 	webhookGroup := v1.Group("/webhook")
 	webhookHandler.RegisterRoutes(webhookGroup)
 
-	// Serve embedded HTML frontend
-	subFS, err := fs.Sub(frontendFS, "html")
-	if err != nil {
-		fmt.Printf("Error creating sub FS: %v\n", err)
-	} else {
-		r.StaticFS("/", http.FS(subFS))
-		r.NoRoute(func(c *gin.Context) {
-			if strings.HasPrefix(c.Request.URL.Path, "/api/") ||
-				strings.HasPrefix(c.Request.URL.Path, "/ws") ||
-				c.Request.URL.Path == "/health" {
-				c.JSON(404, gin.H{"error": "not found"})
-				return
-			}
-			data, err := frontendFS.ReadFile("html/index.html")
-			if err != nil {
-				c.JSON(404, gin.H{"error": "not found"})
-				return
-			}
-			c.Data(200, "text/html; charset=utf-8", data)
-		})
-	}
+	// Serve embedded HTML frontend (SPA fallback)
+	r.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") ||
+			strings.HasPrefix(c.Request.URL.Path, "/ws") ||
+			c.Request.URL.Path == "/health" {
+			c.JSON(404, gin.H{"error": "not found"})
+			return
+		}
+		data, err := frontendFS.ReadFile("html/index.html")
+		if err != nil {
+			c.JSON(404, gin.H{"error": "not found"})
+			return
+		}
+		c.Data(200, "text/html; charset=utf-8", data)
+	})
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
