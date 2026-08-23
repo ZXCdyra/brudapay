@@ -34,7 +34,7 @@ func Connect(ctx context.Context, url string) (*DB, error) {
 	cfg.MaxConnIdleTime = 30 * time.Minute
 
 	// Force IPv4 to work around IPv6 unavailability on Render free plan
-	cfg.DialFunc = (&ipv4Dialer{}).Dial
+	cfg.ConnConfig.DialFunc = (&ipv4Dialer{}).Dial
 
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
