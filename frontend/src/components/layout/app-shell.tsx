@@ -41,9 +41,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // перенаправляем на /merchant.
   useEffect(() => {
     if (!mounted || !isAuthenticated || user?.role !== "MERCHANT") return;
-    const allowed = MERCHANT_ALLOWED_PREFIXES.some((p) =>
-      pathname === p || pathname.startsWith(p + "/")
-    );
+    const allowed = pathname
+      ? MERCHANT_ALLOWED_PREFIXES.some((p) =>
+          pathname === p || pathname.startsWith(p + "/")
+        )
+      : false;
     if (!allowed) {
       router.replace("/merchant");
     }

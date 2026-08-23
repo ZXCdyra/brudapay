@@ -1,0 +1,21 @@
+{
+  "buildCommand": "cd frontend && npm ci && npm run build",
+  "devCommand": "cd frontend && npm run dev",
+  "outputDirectory": "frontend/.next",
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://your-backend-url.onrender.com/api/$1"
+    }
+  ],
+  "env": [
+    {
+      "key": "NEXT_PUBLIC_API_URL",
+      "value": "https://your-backend-url.onrender.com/api/v1"
+    },
+    {
+      "key": "NEXT_PUBLIC_WS_URL",
+      "value": "wss://your-backend-url.onrender.com/api/v1"
+    }
+  ]
+}
