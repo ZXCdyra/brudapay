@@ -177,6 +177,13 @@ func main() {
 		frontendDir = "./frontend/.next/standalone"
 	}
 
+	// Check if frontend exists
+	if _, err := os.Stat(filepath.Join(frontendDir, "server.js")); os.IsNotExist(err) {
+		log.Printf("⚠️ Frontend not found at %s (running API only)", frontendDir)
+	} else {
+		log.Printf("✅ Frontend found at %s", frontendDir)
+	}
+
 	// Serve static files from _next directory
 	r.StaticFS("/_next", http.FS(os.DirFS(filepath.Join(frontendDir, ".next"))))
 
