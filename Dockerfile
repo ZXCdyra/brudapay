@@ -9,7 +9,7 @@ RUN npm run build
 
 FROM node:20-alpine AS frontend-stage
 WORKDIR /app
-COPY frontend/package.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --omit=dev
 COPY --from=frontend-builder /app/.next/standalone ./
 COPY --from=frontend-builder /app/.next/static ./.next/static
