@@ -1,5 +1,6 @@
 # ============================================
 # Backend + Telegram Bot (с простым HTML вместо Next.js)
+# VERSION: 2 - force rebuild with html frontend
 # ============================================
 FROM golang:1.23-alpine AS backend-builder
 
@@ -23,6 +24,9 @@ COPY --from=backend-builder /paymentsgate .
 COPY backend/migrations ./migrations
 COPY telegram_bot.py .
 COPY html ./html
+
+# Verify html exists in image
+RUN ls -la /app/html/ && echo "✅ HTML files copied" || echo "❌ HTML files MISSING"
 
 RUN pip3 install --break-system-packages --no-cache-dir python-telegram-bot
 

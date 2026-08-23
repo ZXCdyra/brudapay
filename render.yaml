@@ -27,3 +27,5 @@ services:
         value: "100"
       - key: BUILDKIT_NO_CACHE
         value: "true"
+      - key: BASE_URL
+        value: https://platega.onrender.com
