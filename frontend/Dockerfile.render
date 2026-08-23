@@ -9,11 +9,11 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 # Копируем package файлы
-COPY frontend/package*.json ./
-RUN npm ci && npm cache clean --force
+COPY package*.json ./
+RUN npm install && npm cache clean --force
 
 # Копируем код
-COPY frontend .
+COPY . .
 
 # Аргументы
 ARG NEXT_PUBLIC_API_URL
