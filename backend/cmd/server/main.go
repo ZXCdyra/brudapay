@@ -51,6 +51,12 @@ var frontendFS embed.FS
 // @in header
 // @name Authorization
 func main() {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("PANIC recovered: %v", r)
+		}
+	}()
+
 	_ = godotenv.Load()
 
 	cfg := config.Load()
