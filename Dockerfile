@@ -36,5 +36,5 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Start backend on 8080 in background (redirect logs), then frontend on 3000
-CMD ["sh", "-c", "./paymentsgate > /tmp/backend.log 2>&1 & sleep 3 && node server.js 2>&1"]
+# Start backend, then frontend, then tail logs to keep container alive
+CMD ["sh", "-c", "./paymentsgate > /tmp/backend.log 2>&1 & sleep 3 && node server.js & wait"]
