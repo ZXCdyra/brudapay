@@ -181,7 +181,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("Error creating sub FS: %v\n", err)
 	} else {
-		r.FileServer(http.FS(subFS), "/")
+		r.StaticFS("/", http.FS(subFS))
 		r.NoRoute(func(c *gin.Context) {
 			if strings.HasPrefix(c.Request.URL.Path, "/api/") ||
 				strings.HasPrefix(c.Request.URL.Path, "/ws") ||
