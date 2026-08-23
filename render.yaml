@@ -5,7 +5,8 @@ services:
     region: oregon
     plan: free
     dockerfilePath: ./Dockerfile.render
-    buildInputPath: .
+    buildArgs:
+      - CACHE_BUST=1724423513
     envVars:
       - key: SERVER_PORT
         value: 8080

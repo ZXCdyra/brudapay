@@ -1,7 +1,8 @@
 # ============================================
-# Backend + Telegram Bot (с простым HTML вместо Next.js)
-# VERSION: 2 - force rebuild with html frontend
+# Backend + Telegram Bot + HTML Frontend
 # ============================================
+ARG CACHE_BUST=1234567890
+
 FROM golang:1.23-alpine AS backend-builder
 
 WORKDIR /app
@@ -16,6 +17,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /paymentsgate ./cmd/se
 # Final image
 FROM alpine:3.19
 
+ARG CACHE_BUST
+
 RUN apk add --no-cache ca-certificates tzdata curl python3 py3-pip
 
 WORKDIR /app
@@ -25,8 +28,7 @@ COPY backend/migrations ./migrations
 COPY telegram_bot.py .
 COPY html ./html
 
-# Verify html exists in image
-RUN ls -la /app/html/ && echo "✅ HTML files copied" || echo "❌ HTML files MISSING"
+RUN echo "CACHE_BUST=$CACHE_BUST" && ls -la /app/html/
 
 RUN pip3 install --break-system-packages --no-cache-dir python-telegram-bot
 
