@@ -1,17 +1,6 @@
 {
-  "services": {
-    "web": {
-      "root": ".",
-      "framework": "nextjs"
-    }
-  },
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": {
-        "type": "service",
-        "service": "web"
-      }
-    }
-  ]
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "regions": ["iad1"]
 }
