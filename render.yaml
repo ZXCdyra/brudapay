@@ -8,7 +8,6 @@ services:
     region: oregon
     plan: free
     dockerfilePath: ./backend/Dockerfile.render
-    dockerfilePath: ./backend/Dockerfile.render
     envVars:
       - key: SERVER_PORT
         value: 8080
