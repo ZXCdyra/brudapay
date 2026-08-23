@@ -2,10 +2,10 @@ FROM golang:1.23-alpine AS backend-builder
 
 WORKDIR /app
 
-COPY go.mod go.sum ./
+COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 
-COPY . .
+COPY backend .
 
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /paymentsgate ./cmd/server
 
@@ -16,7 +16,7 @@ RUN apk add --no-cache ca-certificates tzdata curl
 WORKDIR /app
 
 COPY --from=backend-builder /paymentsgate .
-COPY migrations ./migrations
+COPY backend/migrations ./migrations
 
 RUN chmod +x /paymentsgate
 
