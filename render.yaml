@@ -31,6 +31,8 @@ services:
         sync: false
       - key: RATE_LIMIT_RPS
         value: "100"
+      - key: BASE_URL
+        value: https://platega-frontend.onrender.com
 
   # ============================================
   # Frontend (Next.js Docker) - БЕСПЛАТНО
