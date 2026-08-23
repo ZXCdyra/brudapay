@@ -1,0 +1,23 @@
+# Go
+.git/
+.github/
+*.md
+docs/
+*.test.go
+*_test.go
+
+# IDE
+.vscode/
+.idea/
+
+# Local env
+.env
+.env.local
+.env.*.local
+
+# Build artifacts
+bin/
+vendor/
+
+# Migrations are needed
+# migrations/

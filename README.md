@@ -177,6 +177,30 @@ POST /api/v1/sandbox/generate-traffic
 POST /api/v1/sandbox/generate-stats
 ```
 
+## Deploy on Render (Blueprint)
+
+Один файл `render.yaml` — деплой всего проекта в пару кликов.
+
+**Шаги:**
+1. [New → Blueprint](https://dashboard.render.com/select-new) → укажи URL репозитория
+2. Выбери ветку `main`
+3. Заполни приватные env vars:
+   - `JWT_ACCESS_SECRET` — 32+ символов
+   - `JWT_REFRESH_SECRET` — 32+ символов
+   - `ENCRYPTION_KEY` — ровно 32 символа
+   - `TELEGRAM_BOT_TOKEN` (опционально)
+   - `TELEGRAM_DISPUTE_CHAT_ID` (опционально)
+4. Нажми **Deploy**
+
+Результат: 2 сервиса + 1 БД
+- `brudapay-backend` — Go API (Private Web Service)
+- `brudapay-frontend` — Next.js (Private Web Service)
+- `brudapay-db` — PostgreSQL (Managed)
+
+Redis не нужен — бэкенд работает без него.
+
+---
+
 ## License
 
 Proprietary — PaymentsGate Enterprise Platform

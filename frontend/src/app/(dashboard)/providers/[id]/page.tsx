@@ -14,7 +14,7 @@ import { toast } from "sonner";
 
 export default function ProviderDetailPage() {
   const params = useParams();
-  const id = params.id as string;
+  const id = ((params as Record<string, unknown>)?.id as string) ?? "";
   const queryClient = useQueryClient();
 
   const { data: provider, isLoading } = useQuery({
