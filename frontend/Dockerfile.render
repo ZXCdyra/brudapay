@@ -1,8 +1,6 @@
 # ============================================
 # Frontend Dockerfile для Render
 # ============================================
-# Next.js с standalone output
-# ============================================
 
 FROM node:20-alpine AS builder
 
@@ -14,12 +12,6 @@ RUN npm install && npm cache clean --force
 
 # Копируем код
 COPY . .
-
-# Аргументы
-ARG NEXT_PUBLIC_API_URL
-ARG NEXT_PUBLIC_WS_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 
 # Собираем
 RUN npm run build
@@ -38,7 +30,7 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Render передаёт порт через PORT
-EXPOSE ${PORT:-10000}
+# Порт
+EXPOSE 10000
 
 CMD ["node", "server.js"]

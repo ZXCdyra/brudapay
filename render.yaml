@@ -27,3 +27,19 @@ services:
         sync: false
       - key: RATE_LIMIT_RPS
         value: "100"
+      - key: FRONTEND_URL
+        value: https://platega-frontend.onrender.com
+
+  # ============================================
+  # Frontend (Next.js)
+  # ============================================
+  - type: web
+    name: platega-frontend
+    env: docker
+    region: oregon
+    plan: free
+    dockerfilePath: ./frontend/Dockerfile.render
+    port: 10000
+    envVars:
+      - key: PORT
+        value: "10000"
