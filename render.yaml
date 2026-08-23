@@ -41,4 +41,3 @@ databases:
     region: frankfurt
     plan: standard
     databaseName: brudapay
-    databaseUser: brudapay
