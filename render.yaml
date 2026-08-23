@@ -4,7 +4,7 @@ services:
     env: docker
     region: oregon
     plan: free
-    dockerfilePath: ./Dockerfile.simple
+    dockerfilePath: ./Dockerfile.render
     buildInputPath: .
     envVars:
       - key: SERVER_PORT
@@ -25,7 +25,5 @@ services:
         sync: false
       - key: RATE_LIMIT_RPS
         value: "100"
-      - key: BUILDKIT_NO_CACHE
-        value: "true"
       - key: BASE_URL
         value: https://platega.onrender.com
