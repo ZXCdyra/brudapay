@@ -51,4 +51,4 @@ ENV PORT=8080
 ENV SERVER_PORT=8080
 
 # Запускаем бэкенд и бота
-CMD ["/bin/sh", "-c", "/app/paymentsgate & sleep 3 && python3 telegram_bot.py"]
+CMD ["/bin/sh", "-c", "/app/paymentsgate >> /tmp/server.log 2>&1 & sleep 5 && grep -q 'Listening' /tmp/server.log && echo 'Server started OK' || (cat /tmp/server.log && echo 'Server failed to start') && python3 telegram_bot.py"]
