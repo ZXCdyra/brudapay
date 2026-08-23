@@ -9,7 +9,7 @@ export function TelegramAppInitializer() {
     async function initTelegram() {
       try {
         const sdk = await import("@telegram-apps/sdk");
-        const { init, isOpenedMainThread, launchParams, user, ready } = sdk;
+        const { init, launchParams, user, ready } = sdk;
         
         if (!init) return;
         
