@@ -10,7 +10,7 @@ import { DollarSign, ArrowLeftRight } from "lucide-react";
 
 export default function CasinoDetailPage() {
   const params = useParams();
-  const id = params.id as string;
+  const id = (params?.id ?? "") as string;
 
   const { data: casino } = useQuery({
     queryKey: ["casino", id],
