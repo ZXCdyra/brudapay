@@ -16,13 +16,22 @@ ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
 RUN npm run build
 
 # Production stage
-FROM nginx:alpine
+FROM node:20-alpine AS production
 
-COPY --from=builder /app/out /usr/share/nginx/html
+WORKDIR /app
 
-# Custom nginx config for proper MIME types
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+# Copy package files and install production deps
+COPY package*.json ./
+RUN npm ci --only=production && npm cache clean --force
+
+# Copy built app (not standalone, regular .next)
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
 
 EXPOSE 3000
 
-CMD ["nginx", "-g", "daemon off;"]
+CMD ["node", "node_modules/next/dist/bin/next", "start"]
