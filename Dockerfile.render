@@ -1,27 +1,7 @@
 # ============================================
-# Единый Dockerfile: Frontend + Backend + Bot
+# Backend API + Telegram Bot для Render
 # ============================================
 
-# ============================================
-# Шаг 1: Собираем Frontend (Next.js standalone)
-# ============================================
-FROM node:20-alpine AS frontend-builder
-
-WORKDIR /app
-
-COPY frontend/package*.json ./
-RUN npm install && npm cache clean --force
-
-COPY frontend .
-
-ARG NEXT_PUBLIC_API_URL
-ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-
-RUN npm run build
-
-# ============================================
-# Шаг 2: Собираем Backend
-# ============================================
 FROM golang:1.23-alpine AS backend-builder
 
 WORKDIR /app
@@ -42,33 +22,18 @@ RUN apk add --no-cache ca-certificates tzdata curl python3 py3-pip
 
 WORKDIR /app
 
-# Копируем бэкенд
 COPY --from=backend-builder /paymentsgate .
-
-# Копируем миграции
 COPY backend/migrations ./migrations
-
-# Копируем фронтенд (standalone mode)
-COPY --from=frontend-builder /app/.next/standalone ./frontend/.next/standalone
-COPY --from=frontend-builder /app/.next/static ./frontend/.next/static
-COPY --from=frontend-builder /app/public ./frontend/public
-
-# Копируем Telegram бота
 COPY telegram_bot.py .
 
-# Устанавливаем Python зависимости
 RUN pip3 install --break-system-packages --no-cache-dir python-telegram-bot
 
-# Порт
 EXPOSE 8080
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD curl -f http://localhost:8080/health || exit 1
 
-# Переменные
 ENV PORT=8080
 ENV SERVER_PORT=8080
 
-# Запускаем всё
-CMD ["/bin/sh", "-c", "FRONTEND_DIR=./frontend/.next/standalone /app/paymentsgate >> /tmp/server.log 2>&1 & sleep 5 && grep -q 'PaymentsGate API starting' /tmp/server.log && echo '✅ Server OK' || (cat /tmp/server.log && echo '❌ Server failed') && python3 telegram_bot.py"]
+CMD ["/bin/sh", "-c", "/app/paymentsgate >> /tmp/server.log 2>&1 & sleep 5 && cat /tmp/server.log && python3 telegram_bot.py"]

@@ -15,7 +15,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-# По умолчанию используем localhost для разработки, но можно изменить на.production URL
 BASE_URL = os.getenv("BASE_URL", "https://platega-backend.onrender.com")
 
 if not BOT_TOKEN:
