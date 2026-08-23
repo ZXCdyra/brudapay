@@ -23,7 +23,14 @@ export function middleware(request: NextRequest) {
     const path = url.replace(/^\/api\/v1/, "");
     const targetUrl = `${backendUrl}/api/v1${path}`;
 
-    const headers = new Headers(request.headers);
+    // Копируем все заголовки
+    const headers = new Headers();
+    request.headers.forEach((value, key) => {
+      headers.set(key, value);
+    });
+    
+    // Обновляем host на backend
+    headers.set("host", new URL(backendUrl).host);
     
     // Получаем реальный IP из x-forwarded-for
     const forwardedFor = request.headers.get("x-forwarded-for") || "";
@@ -32,12 +39,6 @@ export function middleware(request: NextRequest) {
     headers.set("X-Forwarded-Host", request.headers.get("host") || "");
     headers.set("X-Forwarded-For", realIp);
     headers.set("X-Forwarded-Proto", request.headers.get("x-forwarded-proto") || "https");
-
-    // Проксируем Authorization заголовок
-    const authHeader = request.headers.get("authorization");
-    if (authHeader) {
-      headers.set("Authorization", authHeader);
-    }
 
     const body = request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined;
 

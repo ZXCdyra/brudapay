@@ -58,8 +58,9 @@ export const useAuthStore = create<AuthState>()(
         try {
           const user = await api.me();
           set({ user, isAuthenticated: true });
-        } catch {
-          set({ user: null, isAuthenticated: false });
+        } catch (err) {
+          console.error('[fetchUser error]', err);
+          // Не сбрасываем isAuthenticated если токен есть - токмен мог просто истечь
         }
       },
 
