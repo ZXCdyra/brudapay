@@ -47,8 +47,8 @@ services:
     region: frankfurt
     plan: standard
     branch: main
-    buildCommand: npm install && npm run build
-    startCommand: npm start
+    buildCommand: npm ci && npm run build
+    startCommand: npx next start
     healthCheckPath: /
     envVars:
       - key: PORT
