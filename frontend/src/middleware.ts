@@ -24,8 +24,13 @@ export function middleware(request: NextRequest) {
     const targetUrl = `${backendUrl}/api/v1${path}`;
 
     const headers = new Headers(request.headers);
+    
+    // Получаем реальный IP из x-forwarded-for
+    const forwardedFor = request.headers.get("x-forwarded-for") || "";
+    const realIp = forwardedFor.split(",")[0].trim();
+    
     headers.set("X-Forwarded-Host", request.headers.get("host") || "");
-    headers.set("X-Forwarded-For", request.headers.get("x-forwarded-for") || request.ip || "");
+    headers.set("X-Forwarded-For", realIp);
     headers.set("X-Forwarded-Proto", request.headers.get("x-forwarded-proto") || "https");
 
     // Проксируем Authorization заголовок
@@ -36,23 +41,31 @@ export function middleware(request: NextRequest) {
 
     const body = request.method !== "GET" && request.method !== "HEAD" ? request.body : undefined;
 
-    const response = await fetch(targetUrl, {
-      method: request.method,
-      headers,
-      body,
-      redirect: "follow",
-    });
+    try {
+      const response = await fetch(targetUrl, {
+        method: request.method,
+        headers,
+        body,
+        redirect: "follow",
+      });
 
-    const responseHeaders = new Headers(response.headers);
-    responseHeaders.set("Access-Control-Allow-Origin", "*");
-    responseHeaders.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
-    responseHeaders.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Signature, X-Forwarded-Host, X-Forwarded-For, X-Forwarded-Proto");
+      const responseHeaders = new Headers(response.headers);
+      responseHeaders.set("Access-Control-Allow-Origin", "*");
+      responseHeaders.set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+      responseHeaders.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Signature, X-Forwarded-Host, X-Forwarded-For, X-Forwarded-Proto");
 
-    return new NextResponse(response.body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: responseHeaders,
-    });
+      return new NextResponse(response.body, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+      });
+    } catch (error) {
+      console.error("[Proxy Error]", error);
+      return NextResponse.json(
+        { error: "Backend unavailable" },
+        { status: 502 }
+      );
+    }
   }
 
   return NextResponse.next();
