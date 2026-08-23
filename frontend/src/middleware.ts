@@ -6,6 +6,19 @@ export function middleware(request: NextRequest) {
 
   // Проксируем все API запросы к Go бэкенду
   if (url.startsWith("/api/v1/")) {
+    // Обработка preflight OPTIONS запросов
+    if (request.method === "OPTIONS") {
+      return new NextResponse(null, {
+        status: 204,
+        headers: {
+          "Access-Control-Allow-Origin": "*",
+          "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+          "Access-Control-Allow-Headers": "Content-Type, Authorization, X-API-Key, X-Signature",
+          "Access-Control-Max-Age": "86400",
+        },
+      });
+    }
+
     const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8080";
     const path = url.replace(/^\/api\/v1/, "");
     const targetUrl = `${backendUrl}/api/v1${path}`;
