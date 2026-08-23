@@ -1,8 +1,18 @@
 #!/usr/bin/env python3
 """Telegram Bot for WebApp launch."""
 import os
+import sys
+import time
+import logging
 from telegram import Update, WebAppInfo, KeyboardButton, ReplyKeyboardMarkup
+from telegram.error import Conflict
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
+
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    level=logging.INFO,
+)
+logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 # По умолчанию используем localhost для разработки, но можно изменить на.production URL
@@ -44,6 +54,13 @@ async def open_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Open command - same as start"""
     await start(update, context)
 
+async def on_conflict(updater):
+    """Handle conflict by shutting down gracefully."""
+    logger.warning("Conflict detected: another bot instance is running. Shutting down...")
+    await updater.stop()
+    sys.exit(0)
+
+
 def main():
     """Main bot function"""
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -53,12 +70,15 @@ def main():
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("open", open_cmd))
     
+    # Handle conflict errors (multiple bot instances)
+    app.updater.on_conflict = on_conflict
+    
     print("✅ Telegram bot started successfully!")
     print(f"🤖 Bot token: {BOT_TOKEN[:10]}...")
     print("📱 Waiting for commands...")
     
-    # Start polling
-    app.run_polling()
+    # Start polling with retries
+    app.run_polling(drop_pending_updates=True, retry_after=5, max_retries=3)
 
 if __name__ == "__main__":
     main()
