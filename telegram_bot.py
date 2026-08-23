@@ -15,8 +15,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
-# URL фронтенда (будет переопределено через env var)
-BASE_URL = os.getenv("FRONTEND_URL", "https://platega-frontend.onrender.com")
+BASE_URL = os.getenv("BASE_URL", "https://platega.onrender.com")
 
 if not BOT_TOKEN:
     print("❌ Set TELEGRAM_BOT_TOKEN env variable")
