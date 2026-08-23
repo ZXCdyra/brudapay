@@ -1,43 +1,46 @@
-# Render Blueprint — Telegram WebApp (один сервис)
-
 services:
-  # ===== GO BACKEND + FRONTEND (один сервис) =====
+  # ============================================
+  # Backend API + Telegram Bot (Web Service)
+  # ============================================
   - type: web
-    name: brudapay
+    name: platega-backend
     env: docker
-    region: frankfurt
-    plan: standard
-    branch: main
-    dockerfilePath: Dockerfile
-    healthCheckPath: /health
+    region: oregon
+    plan: free
+    dockerfilePath: ./backend/Dockerfile.render
+    dockerfilePath: ./backend/Dockerfile.render
     envVars:
-      - key: PORT
+      - key: SERVER_PORT
         value: 8080
       - key: ENVIRONMENT
         value: production
-      - key: SERVER_PORT
-        value: "8080"
+      - key: NODE_ENV
+        value: production
+      - key: NEXT_PUBLIC_API_URL
+        sync: false
       - key: DATABASE_URL
-        fromDatabase:
-          name: brudapay-db
-          property: connectionString
+        sync: false
       - key: JWT_ACCESS_SECRET
         sync: false
       - key: JWT_REFRESH_SECRET
         sync: false
       - key: ENCRYPTION_KEY
         sync: false
-      - key: RATE_LIMIT_RPS
-        value: "100"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_DISPUTE_CHAT_ID
         sync: false
-      - key: FRONTEND_DIR
-        value: ./frontend/.next/standalone
+      - key: RATE_LIMIT_RPS
+        value: "100"
 
-databases:
-  - name: brudapay-db
-    region: frankfurt
-    plan: standard
-    databaseName: brudapay
+  # ============================================
+  # Frontend (Static Site) - БЕСПЛАТНО
+  # ============================================
+  - type: static
+    name: platega-frontend
+    region: oregon
+    buildCommand: npm install && npm run build
+    serveCommand: echo "Next.js standalone"
+    pullRequestPreviewsEnabled: true
+    directory: ./frontend
+    env: next
