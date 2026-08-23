@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
+import { TelegramAppInitializer } from "@/components/TelegramAppInitializer";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -9,7 +10,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "GorillaGate — Enterprise Payment Aggregator",
+  title: "BrudaPay — Enterprise Payment Aggregator",
   description: "Modern SaaS payment routing platform for casino deposits",
 };
 
@@ -21,6 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.variable} antialiased`}>
+        <TelegramAppInitializer />
         <Providers>{children}</Providers>
       </body>
     </html>

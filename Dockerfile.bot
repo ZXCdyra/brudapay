@@ -1,0 +1,10 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Устанавливаем зависимости
+COPY telegram_bot.py .
+RUN pip install --no-cache-dir python-telegram-bot
+
+# Запускаем бота
+CMD ["python", "telegram_bot.py"]

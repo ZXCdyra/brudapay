@@ -1,0 +1,87 @@
+# ============================================
+# Multi-stage Dockerfile для Zeabur
+# Собирает и фронтенд, и бэкенд в одном образе
+# ============================================
+
+# ============================================
+# Stage 1: Сборка фронтенда (Next.js)
+# ============================================
+FROM node:20-alpine AS frontend-builder
+
+WORKDIR /app
+
+# Копируем package файлы для кэширования
+COPY frontend/package*.json ./
+RUN npm ci && npm cache clean --force
+
+# Копируем исходный код фронтенда
+COPY frontend .
+
+# Аргументы для Next.js
+ARG NEXT_PUBLIC_API_URL=/api
+ARG NEXT_PUBLIC_WS_URL=/ws
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_WS_URL=$NEXT_PUBLIC_WS_URL
+
+# Собираем фронтенд
+RUN npm run build
+
+# ============================================
+# Stage 2: Сборка бэкенда (Go)
+# ============================================
+FROM golang:1.23-alpine AS backend-builder
+
+WORKDIR /app
+
+# Копируем go модули
+COPY backend/go.mod backend/go.sum ./
+RUN go mod download
+
+# Копируем весь код бэкенда
+COPY backend .
+
+# Собираем бэкенд
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /paymentsgate ./cmd/server
+
+# ============================================
+# Stage 3: Финальный образ
+# ============================================
+FROM alpine:3.19
+
+# Устанавливаем необходимые пакеты
+RUN apk add --no-cache ca-certificates tzdata curl
+
+# Создаём пользователя
+RUN addgroup -S appgroup && adduser -S appuser -G appgroup
+
+WORKDIR /app
+
+# Копируем собранный бэкенд
+COPY --from=backend-builder /paymentsgate .
+
+# Копируем собранный фронтенд
+COPY --from=frontend-builder /app/.next ./.next
+COPY --from=frontend-builder /app/node_modules ./node_modules
+COPY --from=frontend-builder /app/package.json ./
+COPY --from=frontend-builder /app/public ./public
+
+# Копируем миграции
+COPY backend/migrations ./migrations
+
+# Разрешения
+RUN chown -R appuser:appgroup /app
+USER appuser
+
+# Порт для Next.js (бэкенд тоже на этом порту)
+EXPOSE 8080
+
+# Переменные окружения
+ENV NODE_ENV=production
+ENV PORT=8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD curl -f http://localhost:8080/health || exit 1
+
+# Запускаем Next.js (он обслуживает и фронтенд, и бэкенд)
+CMD ["node", "node_modules/next/dist/bin/next", "start", "-p", "8080"]
