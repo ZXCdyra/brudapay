@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -110,6 +112,15 @@ func main() {
 	trafficSvc := traffic.NewService(db)
 	merchantSvc := merchant.NewService(db)
 
+	// ===== Telegram Bot =====
+	bot := tgbotpkg.NewBot(cfg.Telegram.BotToken, cfg.Server.BaseURL, tgNotifier)
+	go func() {
+		if err := bot.Start(); err != nil {
+			log.Printf("telegram bot error: %v", err)
+		}
+	}()
+	log.Println("Telegram bot initialized")
+
 	authHandler := auth.NewHandler(authSvc)
 	merchantHandler := merchant.NewHandler(merchantSvc)
 
@@ -168,6 +179,26 @@ func main() {
 	// Webhook routes (no auth required)
 	webhookGroup := v1.Group("/webhook")
 	webhookHandler.RegisterRoutes(webhookGroup)
+
+	// ===== Serve Next.js standalone frontend =====
+	frontendDir := os.Getenv("FRONTEND_DIR")
+	if frontendDir == "" {
+		frontendDir = "./frontend/.next/standalone"
+	}
+
+	// Serve static files from _next directory
+	r.StaticFS("/_next", http.Fs(os.DirFS(filepath.Join(frontendDir, ".next"))))
+
+	// Serve server.js for all non-API routes (SPA)
+	r.NoRoute(func(c *gin.Context) {
+		if strings.HasPrefix(c.Request.URL.Path, "/api/") ||
+			strings.HasPrefix(c.Request.URL.Path, "/ws") ||
+			c.Request.URL.Path == "/health" {
+			c.JSON(404, gin.H{"error": "not found"})
+			return
+		}
+		c.File(filepath.Join(frontendDir, "server.js"))
+	})
 
 	srv := &http.Server{
 		Addr:         ":" + cfg.Server.Port,
