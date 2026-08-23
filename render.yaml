@@ -4,7 +4,7 @@ services:
     env: docker
     region: oregon
     plan: free
-    dockerfilePath: ./Dockerfile.render
+    dockerfilePath: ./Dockerfile.render.v2
     envVars:
       - key: SERVER_PORT
         value: 8080
