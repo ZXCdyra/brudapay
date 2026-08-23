@@ -7,18 +7,6 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 RUN npm run build
 
-FROM node:20-alpine AS frontend-stage
-WORKDIR /app
-COPY frontend/package.json frontend/package-lock.json ./
-RUN npm ci --omit=dev
-COPY --from=frontend-builder /app/.next/standalone ./
-COPY --from=frontend-builder /app/.next/static ./.next/static
-COPY --from=frontend-builder /app/public ./public
-EXPOSE 3000
-ENV NODE_ENV=production
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
-
 FROM golang:1.23-alpine AS backend-builder
 WORKDIR /app
 RUN apk add --no-cache git ca-certificates
@@ -32,8 +20,11 @@ RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
-# Copy frontend build (standalone)
-COPY --from=frontend-stage /app .
+# Copy frontend standalone build
+COPY --from=frontend-builder /app/.next/standalone ./
+COPY --from=frontend-builder /app/.next/static ./.next/static
+COPY --from=frontend-builder /app/package.json ./
+COPY --from=frontend-builder /app/public ./public
 
 # Copy backend binary and migrations
 COPY --from=backend-builder /paymentsgate .
@@ -46,4 +37,4 @@ ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
 # Start backend in background, then frontend
-CMD ["sh", "-c", "./paymentsgate & next start -p 3000"]
+CMD ["sh", "-c", "./paymentsgate & node server.js"]
