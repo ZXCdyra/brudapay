@@ -73,9 +73,6 @@
             transform: translateY(-2px);
             box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
         }
-        button:active {
-            transform: translateY(0);
-        }
         .footer {
             text-align: center;
             margin-top: 20px;
@@ -101,29 +98,23 @@
             </div>
             <button type="submit">Sign In</button>
         </form>
-        <div class="footer">
-            Powered by BrudaPay © 2026
-        </div>
+        <div class="footer">Powered by BrudaPay © 2026</div>
     </div>
-
     <script>
         document.getElementById('loginForm').addEventListener('submit', async (e) => {
             e.preventDefault();
             const email = document.getElementById('email').value;
             const password = document.getElementById('password').value;
-
             try {
                 const response = await fetch('/api/v1/auth/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ email, password })
                 });
-
                 const data = await response.json();
                 if (data.success) {
-                    localStorage.setItem('access_token', data.data.access_token);
                     alert('Login successful!');
-                    window.location.href = '/';
+                    localStorage.setItem('access_token', data.data.access_token);
                 } else {
                     alert(data.error?.message || 'Login failed');
                 }

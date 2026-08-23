@@ -1,8 +1,6 @@
 # ============================================
-# Backend + Telegram Bot + HTML Frontend
+# Backend + HTML Frontend (embedded)
 # ============================================
-ARG CACHE_BUST=1234567890
-
 FROM golang:1.23-alpine AS backend-builder
 
 WORKDIR /app
@@ -17,20 +15,13 @@ RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /paymentsgate ./cmd/se
 # Final image
 FROM alpine:3.19
 
-ARG CACHE_BUST
-
-RUN apk add --no-cache ca-certificates tzdata curl python3 py3-pip
+RUN apk add --no-cache ca-certificates tzdata curl
 
 WORKDIR /app
 
 COPY --from=backend-builder /paymentsgate .
 COPY backend/migrations ./migrations
-COPY telegram_bot.py .
 COPY html ./html
-
-RUN echo "CACHE_BUST=$CACHE_BUST" && ls -la /app/html/
-
-RUN pip3 install --break-system-packages --no-cache-dir python-telegram-bot
 
 EXPOSE 8080
 
@@ -40,4 +31,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
 ENV PORT=8080
 ENV SERVER_PORT=8080
 
-CMD ["/bin/sh", "-c", "FRONTEND_DIR=./html /app/paymentsgate >> /tmp/server.log 2>&1 & sleep 3 && cat /tmp/server.log && python3 telegram_bot.py"]
+CMD ["/app/paymentsgate"]
