@@ -2,10 +2,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: 'standalone',
-  images: {
-    unoptimized: true,
-  },
+  // Vercel поддерживает standalone автоматом
 };
 
 export default nextConfig;
