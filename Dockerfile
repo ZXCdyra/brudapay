@@ -31,10 +31,11 @@ COPY --from=backend-builder /paymentsgate .
 COPY backend/migrations ./migrations
 
 EXPOSE 3000
+EXPOSE 8080
 
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Run backend on 8080 in background, wait for DB, start frontend on 3000
-CMD ["/bin/sh", "-c", "fuser -k 8080/tcp 2>/dev/null || true; sleep 1; ./paymentsgate & sleep 5 && node server.js"]
+# Start backend on 8080, wait for it, then start frontend on 3000
+CMD ["/bin/sh", "-c", "./paymentsgate & sleep 5 && node server.js"]
